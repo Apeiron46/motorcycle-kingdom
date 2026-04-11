@@ -1,0 +1,558 @@
+<script>
+    /* Arayüz, Mobil, Tam Fonksiyonel Pazarlık, %40 Kâr ve Borçsuz Ticaret Yaması */
+    (function() {
+        // Arayüz Sabitleme CSS
+        var style = document.createElement('style');
+        style.innerHTML = `
+            body { overflow-y: auto !important; height: 100vh !important; display: flex !important; flex-direction: column !important; }
+            #game-screen { display: none; flex-direction: column !important; height: 100vh !important; width: 100% !important; }
+            .game-container { display: flex !important; flex-wrap: wrap !important; flex: 1 !important; gap: 10px !important; padding: 10px !important; overflow-y: auto !important; align-content: flex-start !important; }
+            .log-panel { width: 250px !important; flex-grow: 1 !important; min-height: 400px !important; }
+            .showcase { flex-grow: 2 !important; min-width: 350px !important; min-height: 400px !important; }
+            .supplier-panel { width: 300px !important; flex-grow: 1 !important; min-height: 400px !important; }
+            @media (max-width: 768px) { .log-panel, .showcase, .supplier-panel { width: 100% !important; } header { padding: 10px !important; } #display-balance { font-size: 1.2em !important; } }
+            #particles-js { position: fixed !important; z-index: -1 !important; }
+            .neg-balance { color: #e74c3c !important; text-shadow: 0 0 5px rgba(231,76,60,0.5); }
+        `;
+        document.head.appendChild(style);
+
+        // --- GELİŞMİŞ PAZARLIK SİSTEMİ ---
+        window.makeBargain = function() {
+            var c = state.currentCustomer;
+            if(!c) return;
+            
+            var rate = (Math.floor(Math.random() * 6) + 5) / 100; // %5 - %10
+            
+            if(c.type === 'seller') {
+                if(Math.random() > 0.4) {
+                    var discount = Math.floor(c.motor.p * rate);
+                    c.motor.p -= discount;
+                    addLog("Pazarlıkla fiyatı " + discount.toLocaleString() + " TL indirdik.");
+                    refreshCustomerUI();
+                } else {
+                    addLog("Satıcı 'son fiyat bu' dedi, inmedi.");
+                }
+            } else if(c.type === 'motor_buyer') {
+                if(Math.random() < 0.6) {
+                    var raise = Math.floor(c.offer * rate);
+                    c.offer += raise;
+                    addLog("Müşteriyi kafaladık! +" + raise.toLocaleString() + " TL ekledi.");
+                    refreshCustomerUI();
+                } else {
+                    addLog("Müşteri pazarlığı reddetti ve dükkanı terk etti!");
+                    resetCustomerArea();
+                }
+            }
+        };
+
+        window.refreshCustomerUI = function() {
+            var c = state.currentCustomer;
+            if(!c) return;
+            var area = document.getElementById('customer-area');
+            if(c.type === 'seller') {
+                area.innerHTML = `<div><b>Satıcı:</b> "${c.motor.n} motorumu <b>${c.motor.p.toLocaleString()} TL</b>'ye bırakıyorum."<br>
+                    <div style="margin-top:10px;">
+                        <button class="btn btn-action" onclick="handleDeal(true)">Al</button>
+                        <button class="btn btn-warn" style="margin-left:5px" onclick="makeBargain()">Pazarlık Yap</button>
+                        <button class="btn btn-warn" style="margin-left:5px; background:#e67e22;" onclick="handleDeal(false, 'param_yok')">Param Yok</button>
+                        <button class="btn btn-cancel" style="margin-left:5px" onclick="handleDeal(false, 'istemem')">Vazgeç</button>
+                    </div></div>`;
+            } else if(c.type === 'motor_buyer') {
+                var diff = c.offer - c.item.p;
+                area.innerHTML = `<div><b>Alıcı:</b> "${c.item.n} için <b>${c.offer.toLocaleString()} TL</b> nakit veririm."<br>
+                    <p style="font-size:0.8em; margin-bottom:10px;">Net Kâr: <span style="color:#2ecc71">+${diff.toLocaleString()} TL</span></p>
+                    <button class="btn btn-action" onclick="handleDeal(true)">Sattım</button>
+                    <button class="btn btn-warn" style="margin-left:5px" onclick="makeBargain()">Pazarlık Yap</button>
+                    <button class="btn btn-cancel" style="margin-left:5px" onclick="handleDeal(false, 'az_para')">Az Bu</button></div>`;
+            }
+        };
+
+        // --- TRAFİK VE SABİT %35-40 KÂR KONTROLÜ ---
+        var trafficControl = function() {
+            if (typeof state !== 'undefined' && !state.currentCustomer && !gamePaused && document.getElementById('game-screen').style.display === 'flex') {
+                var balanceEl = document.getElementById('display-balance');
+                if(state.balance < 0) balanceEl.className = 'neg-balance'; else balanceEl.className = '';
+
+                var rand = Math.random();
+                var equips = state.inventory.filter(i => i.t === 'equip' && i.count > 0);
+                
+                if (rand < 0.60 && equips.length > 0) {
+                    var target = equips[Math.floor(Math.random() * equips.length)];
+                    state.currentCustomer = { type: 'equip_buyer', item: target, offer: target.label };
+                    document.getElementById('customer-area').innerHTML = `<div><b>Ekipman Müşterisi:</b> "${target.n} için <b>${target.label.toLocaleString()} TL</b> veriyor."<br>
+                        <button class="btn btn-action" onclick="handleDeal(true)">Sat</button></div>`;
+                } else {
+                    spawnCustomer();
+                    if(state.currentCustomer && state.currentCustomer.type === 'motor_buyer' && !state.currentCustomer._customized) {
+                        // Kâr oranını %35-%40 arasına sabitledik
+                        var profitRate = (Math.floor(Math.random() * 6) + 35) / 100; 
+                        state.currentCustomer.offer = Math.floor(state.currentCustomer.item.p * (1 + profitRate));
+                        state.currentCustomer._customized = true;
+                        refreshCustomerUI();
+                    } else if(state.currentCustomer && state.currentCustomer.type === 'seller') {
+                        refreshCustomerUI();
+                    }
+                }
+            }
+        };
+
+        // --- BORÇ LİMİTİ KALDIRILDI (0 TL ALTI YASAK) ---
+        var originalHandleDeal = window.handleDeal;
+        window.handleDeal = function(yes, reason) {
+            var c = state.currentCustomer;
+            if (yes && c && c.type === 'seller') {
+                if (state.balance >= c.motor.p) {
+                    state.balance -= c.motor.p;
+                    addToInventory(c.motor.n, c.motor.p, 0, 'motor', 1);
+                    addLog(`${c.motor.n} alındı. -${c.motor.p.toLocaleString()} TL`);
+                    resetCustomerArea();
+                    updateUI();
+                } else {
+                    customAlert("PARA YETERSİZ", "Cebinde nakit kalmamış usta, borca giremezsin!");
+                }
+            } else {
+                originalHandleDeal(yes, reason);
+            }
+        };
+
+        var originalBulkBuy = window.bulkBuy;
+        window.bulkBuy = function(cat, idx) {
+            const item = supplierData[cat][idx];
+            const qty = parseInt(document.getElementById(`qty-${cat}-${idx}`).value) || 1;
+            const totalCost = Math.floor(item.p * qty * (qty >= 10 ? 0.90 : (qty >= 5 ? 0.95 : 1.0)));
+            if(state.balance < totalCost) return customAlert("PARA YETERSİZ", "Toptancıya borç takamazsın, nakit lazım!");
+            originalBulkBuy(cat, idx);
+        };
+
+        setInterval(trafficControl, 4000);
+        
+        var wakeLock = function() {
+            if (document.getElementById('game-screen').style.display === 'flex') { trafficControl(); }
+            requestAnimationFrame(function() { setTimeout(wakeLock, 4000); });
+        };
+        wakeLock();
+    })();
+</script>
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MOTO MARKET: PRO DEALER</title>
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root { --dark: #121212; --gray: #1e1e1e; --accent: #ff6f00; --accent-hover: #e65100; --text: #e0e0e0; --font-main: 'Montserrat', sans-serif; }
+        body { font-family: var(--font-main); background-color: var(--dark); color: var(--text); margin: 0; overflow: hidden; height: 100vh; }
+        #particles-js { position: absolute; width: 100%; height: 100%; z-index: 0; top: 0; left: 0; }
+        #main-menu { position: relative; z-index: 20; height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; background: rgba(0,0,0,0.6); }
+        #main-menu h1 { font-size: 3.5em; margin-bottom: 50px; text-shadow: 0 0 20px rgba(255,111,0,0.4); letter-spacing: 5px; text-align: center; }
+        .menu-btn { width: 300px; padding: 20px; margin: 10px; border: none; border-radius: 10px; background-color: var(--gray); color: var(--text); font-size: 1.1em; cursor: pointer; transition: 0.3s; box-shadow: 0 4px 15px rgba(0,0,0,0.3); }
+        .menu-btn:not(:disabled):hover { transform: translateY(-5px); background-color: var(--accent); box-shadow: 0 8px 25px rgba(255,111,0,0.4); }
+        .menu-btn:disabled { color: #444; cursor: not-allowed; }
+        #game-screen { display: none; height: 100vh; width: 100%; flex-direction: column; z-index: 10; position: relative; }
+        header { background-color: var(--gray); padding: 15px 30px; display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid var(--accent); }
+        .game-container { display: flex; flex: 1; overflow: hidden; padding: 15px; gap: 15px; }
+        .panel { background-color: rgba(20, 20, 20, 0.9); border: 1px solid #333; border-radius: 12px; display: flex; flex-direction: column; }
+        #customer-area { background: #1a1a1a; margin-bottom: 20px; padding: 20px; border: 2px dashed var(--accent); border-radius: 10px; min-height: 120px; text-align: center; position: relative; display: flex; align-items: center; justify-content: center; }
+        .log-panel { width: 22%; }
+        .showcase { flex: 1; padding: 20px; overflow-y: auto; }
+        .supplier-panel { width: 28%; }
+        .card { background: #252525; padding: 15px; border-radius: 8px; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; border-left: 5px solid var(--accent); transition: 0.2s; }
+        .sup-item { background: #1a1a1a; padding: 15px; margin-bottom: 10px; border-radius: 8px; border: 1px solid #333; }
+        .stock-tag { background: var(--accent); color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.8em; margin-left: 10px; font-weight: bold; }
+        .price-tag { color: #2ecc71; font-weight: bold; font-size: 0.9em; margin-left: auto; margin-right: 15px; }
+        .cost-tag { color: #95a5a6; font-size: 0.85em; margin-left: auto; margin-right: 15px; font-style: italic; }
+        .qty-input { width: 50px; background: #333; border: 1px solid #444; color: white; padding: 5px; border-radius: 4px; margin-right: 5px; }
+        .btn { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        .btn-buy { background: #27ae60; color: white; width: 100%; margin-top: 8px; }
+        .btn-action { background: var(--accent); color: white; }
+        .btn-cancel { background: #c0392b; color: white; }
+        .btn-warn { background: #7f8c8d; color: white; }
+        .supplier-nav { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 15px; }
+        .supplier-nav button { padding: 12px; background: #333; border: none; color: white; cursor: pointer; border-radius: 6px; font-size: 0.9em; }
+
+        .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: none; justify-content: center; align-items: center; z-index: 1000; backdrop-filter: blur(8px); }
+        .modal { background: #1a1a1a; border: 1px solid var(--accent); border-radius: 15px; padding: 40px; width: 400px; text-align: center; box-shadow: 0 0 30px rgba(255,111,0,0.3); }
+        .modal h2, .modal h3 { color: var(--accent); margin-top: 0; letter-spacing: 2px; }
+        .modal p { color: #bbb; margin-bottom: 25px; }
+        .modal input { width: 100%; padding: 12px; margin: 20px 0; background: #222; border: 1px solid #444; color: white; border-radius: 6px; box-sizing: border-box; font-family: var(--font-main); }
+        .modal input:focus { border-color: var(--accent); outline: none; }
+        .modal-btns { display: flex; justify-content: center; gap: 10px; }
+        .modal-btn { flex: 1; padding: 12px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-family: var(--font-main); transition: 0.2s; }
+        .modal-btn.confirm { background: var(--accent); color: white; }
+        .modal-btn.cancel { background: #444; color: white; }
+        .modal-btn.danger { background: #c0392b; color: white; }
+
+        #pause-menu { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); display: none; justify-content: center; align-items: center; z-index: 500; backdrop-filter: blur(10px); }
+        .pause-box { background: #1a1a1a; border: 2px solid var(--accent); padding: 40px; border-radius: 20px; text-align: center; box-shadow: 0 0 30px rgba(255,111,0,0.2); }
+
+        .log-income { color: #2ecc71; font-weight: bold; }
+        .log-expense { color: #e74c3c; font-weight: bold; }
+        .log-neutral { color: #95a5a6; }
+    </style>
+</head>
+<body>
+
+    <div id="particles-js"></div>
+
+    <div id="main-menu">
+        <h1>MOTO MARKET<br><span style="font-size: 0.5em; color: var(--accent);">PRO DEALER</span></h1>
+        <button id="continue-btn" class="menu-btn" disabled>Oyuna Devam Et</button>
+        <button id="new-game-btn" class="menu-btn">Yeni Oyun</button>
+        <button id="exit-btn" class="menu-btn" onclick="window.close()">Oyundan Çık</button>
+    </div>
+
+    <div id="pause-menu">
+        <div class="pause-box">
+            <h2 style="color: var(--accent); margin-bottom: 30px; letter-spacing: 3px;">OYUN DURAKLATILDI</h2>
+            <button class="menu-btn" onclick="manualSave(false)">Kaydet ve Devam Et</button>
+            <button class="menu-btn" onclick="manualSave(true)">Kaydet ve Çık</button>
+            <button class="menu-btn" style="background: #444;" onclick="togglePause()">Kapat (ESC)</button>
+        </div>
+    </div>
+
+    <div id="game-screen">
+        <header>
+            <h2 id="display-gallery-name">GALERİ</h2>
+            <div id="display-balance" style="font-size: 1.8em; color: #2ecc71; font-weight: bold;">100.000 TL</div>
+        </header>
+        <div class="game-container">
+            <aside class="panel log-panel">
+                <div style="padding:15px; border-bottom:1px solid #333; text-align:center; font-weight:bold; letter-spacing:2px;">KAYIT DEFTERİ</div>
+                <div id="log-list" style="padding:15px; font-size:0.85em; overflow-y:auto; line-height:1.6;"></div>
+            </aside>
+            <main class="panel showcase">
+                <div id="customer-area">
+                    <p style="color: #666; font-style: italic;">Kapı gözleniyor...</p>
+                </div>
+                <h3 style="color: var(--accent); margin-bottom: 15px;">Mevcut Motorlar</h3>
+                <div id="motor-list"></div>
+                <h3 style="color: #27ae60; margin-top: 30px; margin-bottom: 15px;">Ekipman Rafları</h3>
+                <div id="equipment-shelf"></div>
+            </main>
+            <aside class="panel supplier-panel">
+                <h3 style="text-align: center; color: var(--accent); margin-top: 15px;">Toptancı</h3>
+                <div class="supplier-nav">
+                    <button onclick="filterSupplier('Kask')">Kasklar</button>
+                    <button onclick="filterSupplier('Ceket')">Ceketler</button>
+                    <button onclick="filterSupplier('Eldiven')">Eldivenler</button>
+                    <button onclick="filterSupplier('Interkom')">İnterkom</button>
+                </div>
+                <div id="supplier-items" style="padding: 10px; overflow-y: auto;"></div>
+            </aside>
+        </div>
+    </div>
+
+    <div id="modal-name" class="modal-overlay">
+        <div class="modal">
+            <h2>YENİ BAŞLANGIÇ</h2>
+            <p>Galerinin adı ne olsun?</p>
+            <input type="text" id="gallery-input" placeholder="Örn: Motor-10">
+            <button class="modal-btn confirm" onclick="finishSetup()">Başla!</button>
+        </div>
+    </div>
+
+    <div id="modal-confirm" class="modal-overlay">
+        <div class="modal">
+            <h2 style="color: #c0392b;">DİKKAT!</h2>
+            <p>Eski kayıt silinecek! Devam etmek istediğine emin misin aga?</p>
+            <div class="modal-btns">
+                <button class="modal-btn danger" onclick="confirmNewGame()">Sil ve Başla</button>
+                <button class="modal-btn cancel" onclick="closeModal('modal-confirm')">Vazgeç</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-alert" class="modal-overlay">
+        <div class="modal">
+            <h3 id="alert-title">Uyarı</h3>
+            <p id="alert-msg"></p>
+            <button class="modal-btn confirm" onclick="closeModal('modal-alert')">Tamam</button>
+        </div>
+    </div>
+
+    <div id="modal-price" class="modal-overlay">
+        <div class="modal">
+            <h3 id="modal-price-title">Etiket Fiyatı</h3>
+            <p id="modal-price-desc"></p>
+            <input type="number" id="price-input" placeholder="Etiket fiyatı girin...">
+            <button class="modal-btn confirm" onclick="confirmPriceTag()">Etiketi Yapıştır</button>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/particles.js/2.0.0/particles.min.js"></script>
+    <script>
+        let state = { galleryName: "", balance: 100000, inventory: [], logs: [], currentCustomer: null, pendingItem: null, labelHistory: {} };
+        let gamePaused = false;
+        let nextCustomerTimeout = null;
+
+        window.onload = () => { 
+            initParticles();
+            if(localStorage.getItem('sim_save_v11')) { 
+                state = JSON.parse(localStorage.getItem('sim_save_v11')); 
+                document.getElementById('continue-btn').disabled = false; 
+            } 
+        };
+
+        function openModal(id) { document.getElementById(id).style.display = 'flex'; }
+        function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+        function customAlert(title, msg) {
+            document.getElementById('alert-title').innerText = title;
+            document.getElementById('alert-msg').innerText = msg;
+            openModal('modal-alert');
+        }
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key === "Escape") {
+                if (document.getElementById('game-screen').style.display === 'flex') togglePause();
+            }
+            if (e.key === "Enter" && !state.currentCustomer && document.getElementById('game-screen').style.display === 'flex' && !gamePaused) {
+                spawnCustomer(true);
+            }
+        });
+
+        function togglePause() {
+            gamePaused = !gamePaused;
+            document.getElementById('pause-menu').style.display = gamePaused ? 'flex' : 'none';
+        }
+
+        function manualSave(exit) {
+            localStorage.setItem('sim_save_v11', JSON.stringify(state));
+            addLog("Oyun manuel olarak kaydedildi.");
+            if (exit) location.reload(); else togglePause();
+        }
+
+        document.getElementById('new-game-btn').onclick = () => { 
+            if(localStorage.getItem('sim_save_v11')) openModal('modal-confirm');
+            else openModal('modal-name');
+        };
+
+        function confirmNewGame() {
+            closeModal('modal-confirm');
+            openModal('modal-name');
+        }
+
+        document.getElementById('continue-btn').onclick = () => { startGameUI(); };
+
+        function finishSetup() {
+            const name = document.getElementById('gallery-input').value || "MOTOR-10";
+            state = { galleryName: name, balance: 100000, inventory: [{n: "Scooter 50cc", p: 40000, label: 0, t: 'motor', count: 1}], logs: [], labelHistory: {} };
+            closeModal('modal-name');
+            startGameUI();
+        }
+
+        function startGameUI() {
+            document.getElementById('main-menu').style.display = 'none';
+            document.getElementById('game-screen').style.display = 'flex';
+            updateUI(); 
+            filterSupplier('Kask'); 
+            scheduleNextCustomer();
+        }
+
+        function scheduleNextCustomer() {
+            if(nextCustomerTimeout) clearTimeout(nextCustomerTimeout);
+            let delay = Math.floor(Math.random() * 7000) + 5000;
+            nextCustomerTimeout = setTimeout(() => {
+                if(!gamePaused) spawnCustomer();
+                scheduleNextCustomer();
+            }, delay);
+        }
+
+        const supplierData = {
+            'Kask': [{n:"Giriş Seviye Kask", p:1500},{n:"Şehir İçi Kask", p:3000},{n:"Fiberglass Kask", p:7500},{n:"Karbon Spor Kask", p:15000},{n:"Pro Yarış Kaskı", p:35000}],
+            'Ceket': [{n:"Fileli Yazlık Mont", p:2500},{n:"4 Mevsim Mont", p:5000},{n:"Deri Ceket", p:12000},{n:"Gore-Tex Tur Montu", p:22000},{n:"Airbagli Tulum", p:55000}],
+            'Eldiven': [{n:"Bez Eldiven", p:500},{n:"Korumalı Yazlık", p:1200},{n:"Kışlık Su Geçirmez", p:2800},{n:"Deri Uzun Eldiven", p:5500},{n:"Titanyum Pro", p:11000}],
+            'Interkom': [{n:"Tekli Başlangıç", p:1000},{n:"LCD Ekranlı", p:2500},{n:"Mesh Bağlantı", p:6000},{n:"Harman Kardon", p:13000},{n:"Kamera Entegre", p:20000}]
+        };
+
+        function filterSupplier(cat) {
+            const div = document.getElementById('supplier-items'); div.innerHTML = "";
+            supplierData[cat].forEach((item, idx) => {
+                div.innerHTML += `<div class="sup-item">
+                    <span>${item.n}</span><br><b style="color:#2ecc71">${item.p.toLocaleString()} TL</b>
+                    <div style="margin-top:10px; display:flex; align-items:center; gap:5px;">
+                        <input type="number" class="qty-input" id="qty-${cat}-${idx}" value="1" min="1" max="10">
+                        <button class="btn btn-buy" style="margin-top:0;" onclick="bulkBuy('${cat}', ${idx})">Satın Al</button>
+                    </div>
+                </div>`;
+            });
+        }
+
+        function bulkBuy(cat, idx) {
+            const item = supplierData[cat][idx];
+            const qty = parseInt(document.getElementById(`qty-${cat}-${idx}`).value) || 1;
+            const cappedQty = Math.min(Math.max(qty, 1), 10);
+            let discount = cappedQty === 10 ? 0.90 : (cappedQty >= 5 ? 0.95 : 1.0);
+            const totalCost = Math.floor(item.p * cappedQty * discount);
+            if(state.balance < totalCost) return customAlert("PARA YETERSİZ", "Cebinde bu kadar nakit yok aga!");
+            if(state.labelHistory[item.n]) {
+                state.balance -= totalCost;
+                addToInventory(item.n, item.p, state.labelHistory[item.n], 'equip', cappedQty);
+                addLog(`${cappedQty}x ${item.n} alındı. -${totalCost.toLocaleString()} TL`);
+                updateUI();
+            } else {
+                state.pendingItem = { n: item.n, p: item.p, t: 'equip', qty: cappedQty, total: totalCost };
+                openPriceModal(item.n, item.p);
+            }
+        }
+
+        function openPriceModal(name, basePrice, isUpdate = false) {
+            document.getElementById('modal-price-title').innerText = isUpdate ? "Fiyat Güncelle" : name;
+            document.getElementById('modal-price-desc').innerText = `Geliş: ${basePrice.toLocaleString()} TL`;
+            document.getElementById('price-input').value = isUpdate ? (state.inventory.find(i=>i.n===name)?.label || "") : Math.floor(basePrice * 1.35);
+            openModal('modal-price');
+            if(isUpdate) state.pendingItem = { n: name, isUpdate: true };
+        }
+
+        function confirmPriceTag() {
+            const label = parseInt(document.getElementById('price-input').value);
+            if(!label || label <= 0) return customAlert("HATA", "Geçerli bir fiyat girmelisin!");
+            const p = state.pendingItem;
+            if(p.isUpdate) {
+                const item = state.inventory.find(i => i.n === p.n);
+                if(item) item.label = label;
+                state.labelHistory[p.n] = label;
+                addLog(`${p.n} fiyatı güncellendi.`);
+            } else {
+                state.balance -= p.total;
+                state.labelHistory[p.n] = label;
+                addToInventory(p.n, p.p, label, p.t, p.qty);
+                addLog(`${p.qty}x ${p.n} alındı. -${p.total.toLocaleString()} TL`);
+            }
+            closeModal('modal-price');
+            state.pendingItem = null;
+            updateUI();
+        }
+
+        function addToInventory(n, p, label, t, count) {
+            const existing = state.inventory.find(i => i.n === n && i.t === t);
+            if(existing) existing.count += count; else state.inventory.push({n, p, label, t, count});
+        }
+
+        function spawnCustomer(forced = false) {
+            if (state.currentCustomer && !forced) return;
+            if (forced) state.currentCustomer = null; 
+
+            const area = document.getElementById('customer-area');
+            const motors = state.inventory.filter(i => i.t === 'motor' && i.count > 0);
+            const equips = state.inventory.filter(i => i.t === 'equip' && i.count > 0);
+            const rand = Math.random();
+
+            if (rand < 0.15) { 
+                const greets = ["Hayırlı işler usta, motorlara bakmaya geldim.", "Kolay gelsin, iyi satışlar!", "Sadece bakıyorum usta, piyasa ne durumda?", "Maşallah dükkan dolu, bereketli olsun."];
+                area.innerHTML = `<div><b>Ziyaretçi:</b> "${greets[Math.floor(Math.random()*greets.length)]}"<br><p style="color:#666; font-size:0.8em; margin-top:10px;">(Göz gezdirip gidecek...)</p></div>`;
+                state.currentCustomer = { type: 'visitor' };
+                setTimeout(() => { if(state.currentCustomer?.type === 'visitor') resetCustomerArea(); }, 4000);
+                return;
+            }
+
+            // CC Aralığı Eşit Dağıtıldı
+            const motorPool = [
+                {n:"Scooter 50cc", p:35000}, {n:"Scooter 125cc", p:65000},
+                {n:"Naked 250cc", p:110000}, {n:"Naked 600cc", p:195000}, {n:"Sport 1000cc", p:450000},
+                {n:"HyperSport 1350cc", p:820000}, {n:"Cross 250cc", p:98000}, {n:"Enduro 700cc", p:320000},
+                {n:"Chopper 250cc", p:85000}, {n:"V-Twin Chopper 1000cc", p:290000}, {n:"Custom Cooper 1200cc", p:410000},
+                {n:"Cafe Racer 400cc", p:145000}, {n:"Touring 1250cc", p:580000}
+            ];
+
+            if (motors.length === 0 || (rand < 0.40)) { 
+                const incoming = motorPool[Math.floor(Math.random() * motorPool.length)];
+                incoming.t = 'motor';
+                state.currentCustomer = { type: 'seller', motor: incoming };
+                if(typeof refreshCustomerUI === 'function') refreshCustomerUI();
+            } else if (rand < 0.75) { 
+                const target = motors[Math.floor(Math.random() * motors.length)];
+                const offer = Math.floor(target.p * (1.35 + Math.random() * 0.05));
+                state.currentCustomer = { type: 'motor_buyer', item: target, offer: offer };
+                if(typeof refreshCustomerUI === 'function') refreshCustomerUI();
+            } else { 
+                if(equips.length > 0) {
+                    const target = equips[Math.floor(Math.random() * equips.length)];
+                    state.currentCustomer = { type: 'equip_buyer', item: target, offer: target.label };
+                    area.innerHTML = `<div><b>Ekipman Müşterisi:</b> "${target.n} alacağım, <b>${target.label.toLocaleString()} TL</b> değil mi?"<br>
+                        <button class="btn btn-action" onclick="handleDeal(true)">Evet, Buyur</button>
+                        <button class="btn btn-cancel" style="margin-left:5px" onclick="handleDeal(false, 'vazgecti')">Vazgeçti</button></div>`;
+                } else {
+                    area.innerHTML = `<div><b>Müşteri:</b> "Dükkan bomboş usta, ekipman kalmamış..."<br><button class="btn btn-cancel" onclick="resetCustomerArea()">Uğurlar Olsun</button></div>`;
+                }
+            }
+        }
+
+        function handleDeal(yes, reason = "") {
+            const c = state.currentCustomer;
+            if (yes) {
+                if (c.type === 'motor_buyer' || c.type === 'equip_buyer') {
+                    state.balance += c.offer;
+                    c.item.count--;
+                    if(c.item.count <= 0) state.inventory.splice(state.inventory.indexOf(c.item), 1);
+                    addLog(`${c.item.n} satıldı: +${c.offer.toLocaleString()} TL`);
+                } else if (c.type === 'seller') {
+                    if (state.balance >= c.motor.p) {
+                        state.balance -= c.motor.p;
+                        addToInventory(c.motor.n, c.motor.p, 0, 'motor', 1);
+                        addLog(`${c.motor.n} alındı. -${c.motor.p.toLocaleString()} TL`);
+                    } else customAlert("PARA YETERSİZ", "Kasanın dibi görünüyor aga, para yok!");
+                }
+            } else {
+                if(reason === 'param_yok') addLog("Nakit yetersizliğinden motor alınamadı.");
+                else if(reason === 'az_para') addLog("Fiyat düşük bulunduğu için motor satılmadı.");
+                else addLog("Müşteri eli boş döndü.");
+            }
+            resetCustomerArea();
+            updateUI();
+        }
+
+        function resetCustomerArea() {
+            state.currentCustomer = null;
+            document.getElementById('customer-area').innerHTML = `<p style="color: #666; font-style: italic;">Kapı gözleniyor...</p>`;
+        }
+
+        function updateUI() {
+            document.getElementById('display-gallery-name').innerText = state.galleryName;
+            document.getElementById('display-balance').innerText = state.balance.toLocaleString() + " TL";
+            const mList = document.getElementById('motor-list'); const eList = document.getElementById('equipment-shelf');
+            mList.innerHTML = ""; eList.innerHTML = "";
+            state.inventory.forEach(i => {
+                const isMotor = i.t === 'motor';
+                const h = `<div class="card">
+                    <span>${i.n} ${i.count > 1 ? `<span class="stock-tag">x${i.count}</span>` : ''}</span>
+                    <div style="display:flex; align-items:center;">
+                        ${isMotor ? `<span class="cost-tag">Maliyet: ${i.p.toLocaleString()} TL</span>` : `<span class="price-tag">${i.label.toLocaleString()} TL</span>`}
+                        ${!isMotor ? `<button class="btn btn-action" style="padding:5px 10px; font-size:0.8em;" onclick="openPriceModal('${i.n}', ${i.p}, true)">🏷️</button>` : ''}
+                    </div>
+                </div>`;
+                isMotor ? mList.innerHTML += h : eList.innerHTML += h;
+            });
+            localStorage.setItem('sim_save_v11', JSON.stringify(state));
+            document.getElementById('log-list').innerHTML = state.logs.slice(0, 20).map(l => {
+                let colorClass = 'log-neutral';
+                if(l.includes('+')) colorClass = 'log-income';
+                else if(l.includes('-')) colorClass = 'log-expense';
+                return `<div class="${colorClass}" style="border-bottom:1px solid #222; margin-bottom:5px;">${l}</div>`;
+            }).join('');
+        }
+
+        function addLog(m) { state.logs.unshift(`${new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})} - ${m}`); }
+
+        function initParticles() {
+            particlesJS("particles-js", {
+                particles: {
+                    number: { value: 80, density: { enable: true, value_area: 800 } },
+                    color: { value: "#ff6f00" },
+                    shape: { type: "circle" },
+                    opacity: { value: 0.5, random: true },
+                    size: { value: 3, random: true },
+                    line_linked: { enable: true, distance: 150, color: "#ff6f00", opacity: 0.3, width: 1 },
+                    move: { enable: true, speed: 1.5, direction: "none", random: true, straight: false, out_mode: "out", bounce: false }
+                },
+                interactivity: {
+                    detect_on: "canvas",
+                    events: { onhover: { enable: true, mode: "grab" }, onclick: { enable: true, mode: "push" }, resize: true },
+                    modes: { grab: { distance: 200, line_linked: { opacity: 0.5 } }, push: { particles_nb: 4 } }
+                },
+                retina_detect: true
+            });
+        }
+    </script>
+</body>
+</html>
