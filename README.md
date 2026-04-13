@@ -1,2 +1,3 @@
 # motorcycle-kingdom
 It's a small trading game where you start with a small capital and buy and sell motorcycles and equipment.
+https://apeiron46.github.io/motorcycle-kingdom/
